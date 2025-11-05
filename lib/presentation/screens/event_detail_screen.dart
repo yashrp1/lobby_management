@@ -282,8 +282,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                             options: CarouselOptions(
                               height: double.infinity,
                               viewportFraction: 1.0,
-                              autoPlay: false,
-                              autoPlayInterval: const Duration(seconds: 5),
+                              autoPlay: true,
+                              autoPlayInterval: const Duration(seconds: 6),
                               enableInfiniteScroll: false,
                               onPageChanged: (idx, reason) {
                                 setState(() => _currentImage = idx);
