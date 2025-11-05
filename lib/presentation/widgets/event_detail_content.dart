@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -10,6 +11,11 @@ import '../../../core/constants/spacing.dart';
 import '../../../core/utils/responsive.dart';
 import '../../../core/utils/animations.dart';
 import 'host_profile_preview.dart';
+import '../../services/booking_queue_service.dart';
+import '../../core/di/injector.dart';
+import '../../data/repository/event_repository.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import '../../services/connectivity_service.dart';
 
 class EventDetailContent extends StatelessWidget {
   final EventDetailModel event;
@@ -26,10 +32,11 @@ class EventDetailContent extends StatelessWidget {
     final lobby = event.lobby;
     final location = lobby.filter?.otherFilterInfo?.locationInfo?.firstLocation;
     final locationPoint = location?.exactLocation ?? location?.approxLocation;
+    final DateTime? startDateTime = lobby.dateRange?.startDateTime;
     
     return RepaintBoundary(
       child: Container(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -49,7 +56,7 @@ class EventDetailContent extends StatelessWidget {
                   lobby.title,
                   style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: Colors.black,
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                 ),
                 const SizedBox(height: 12),
@@ -74,7 +81,7 @@ class EventDetailContent extends StatelessWidget {
                         Text(
                           '${lobby.currentMembers}/${lobby.totalMembers} joined',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: Colors.grey[700],
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
                                 fontWeight: FontWeight.w600,
                               ),
                         ),
@@ -91,23 +98,23 @@ class EventDetailContent extends StatelessWidget {
                   Row(
                     children: [
                       if (lobby.views > 0) ...[
-                        Icon(Icons.visibility, size: 16, color: Colors.grey[600]),
+                        Icon(Icons.visibility, size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         const SizedBox(width: 4),
                         Text(
                           '${lobby.views} views',
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey[600],
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
                               ),
                         ),
                       ],
                       if (viewingCount > 0) ...[
                         if (lobby.views > 0) const SizedBox(width: 16),
-                        Icon(Icons.remove_red_eye, size: 16, color: Colors.grey[600]),
+                        Icon(Icons.remove_red_eye, size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         const SizedBox(width: 4),
                         Text(
                           '$viewingCount viewing now',
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey[600],
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
                               ),
                         ),
                       ],
@@ -125,19 +132,26 @@ class EventDetailContent extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.calendar_today, size: 18, color: Colors.grey[600]),
+                  Icon(Icons.calendar_today, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       lobby.dateRange!.formattedDate ?? 
                       DateFormat('EEE, d MMM yyyy \'at\' HH:mm').format(lobby.dateRange!.startDateTime),
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.grey[700],
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
                     ),
                   ),
                 ],
               ),
+            ),
+          if (startDateTime != null)
+            Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.getScreenPadding(context),
+              ),
+              child: _CountdownTimer(target: startDateTime),
             ),
           if (location != null && location.displayAddress != null)
             Padding(
@@ -147,13 +161,13 @@ class EventDetailContent extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.location_on, size: 18, color: Colors.grey[600]),
+                  Icon(Icons.location_on, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       location.displayAddress!,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.grey[700],
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
                     ),
                   ),
@@ -172,14 +186,14 @@ class EventDetailContent extends StatelessWidget {
                     'About',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: Colors.black,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                   ),
                   const SizedBox(height: 12),
                   Text(
                     QuillDeltaParser.parseDeltaToPlainText(lobby.description),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey[700],
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           height: 1.5,
                         ),
                     maxLines: 3,
@@ -196,9 +210,8 @@ class EventDetailContent extends StatelessWidget {
                       ),
                       child: Text(
                         'Read more',
-                        style: TextStyle(
+                        style: (Theme.of(context).textTheme.bodyMedium ?? const TextStyle()).copyWith(
                           color: Theme.of(context).colorScheme.primary,
-                          fontSize: 14,
                         ),
                       ),
                     ),
@@ -218,7 +231,7 @@ class EventDetailContent extends StatelessWidget {
                     'Location',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: Colors.black,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                   ),
                   const SizedBox(height: 12),
@@ -332,7 +345,7 @@ class EventDetailContent extends StatelessWidget {
                     'Pricing & Tickets',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: Colors.black,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                   ),
                   const SizedBox(height: 16),
@@ -361,7 +374,7 @@ class EventDetailContent extends StatelessWidget {
                         'Community Insights',
                         style: Theme.of(context).textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.bold,
-                              color: Colors.black,
+                              color: Theme.of(context).colorScheme.onSurface,
                             ),
                       ),
                     ],
@@ -396,7 +409,7 @@ class EventDetailContent extends StatelessWidget {
                     Text(
                       lobby.lobbyInsight!.deeperInsight!,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.grey[600],
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
                             fontStyle: FontStyle.italic,
                           ),
                     ),
@@ -468,17 +481,73 @@ class EventDetailContent extends StatelessWidget {
               ),
             ),
           if (lobby.lobbyInsight != null) SizedBox(height: Responsive.isTablet(context) ? Spacing.xxxl : Spacing.xl),
+          if (event.lobby.userSummaries.isNotEmpty)
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: Responsive.getScreenPadding(context)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.people_alt, size: 20, color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Users you might know',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 84,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _suggestedUsers(event).length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 12),
+                      itemBuilder: (context, index) {
+                        final user = _suggestedUsers(event)[index];
+                        final initials = (user.name ?? user.email ?? user.userId).trim();
+                        final display = initials.isNotEmpty ? initials[0].toUpperCase() : '?';
+                        return Column(
+                          children: [
+                            CircleAvatar(
+                              radius: 26,
+                              backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                              child: Text(display, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(height: 6),
+                            SizedBox(
+                              width: 80,
+                              child: Text(
+                                user.name ?? user.email ?? 'User',
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall,
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (event.lobby.userSummaries.isNotEmpty) SizedBox(height: Responsive.isTablet(context) ? Spacing.xxxl : Spacing.xl),
           if (lobby.houseDetail != null)
             Padding(
               padding: EdgeInsets.symmetric(horizontal: Responsive.getScreenPadding(context)),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                    Text(
                     'Host Information',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: Colors.black,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                   ),
                   const SizedBox(height: Spacing.md),
@@ -600,6 +669,32 @@ class EventDetailContent extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  List<UserSummary> _suggestedUsers(EventDetailModel event) {
+    final users = event.lobby.userSummaries;
+    if (users.isEmpty) return users;
+    // Heuristic: prefer users sharing the most common email domain among attendees
+    final Map<String, int> domainCount = {};
+    for (final u in users) {
+      final email = u.email;
+      if (email != null && email.contains('@')) {
+        final domain = email.split('@').last.toLowerCase();
+        domainCount[domain] = (domainCount[domain] ?? 0) + 1;
+      }
+    }
+    String? topDomain;
+    int best = 0;
+    domainCount.forEach((d, c) {
+      if (c > best) {
+        best = c;
+        topDomain = d;
+      }
+    });
+    final filtered = topDomain == null
+        ? users
+        : users.where((u) => (u.email ?? '').toLowerCase().endsWith('@$topDomain')).toList();
+    return (filtered.isNotEmpty ? filtered : users).take(12).toList();
   }
 }
 
@@ -744,7 +839,47 @@ class _TicketCard extends StatelessWidget {
                 MicroInteractions.buttonPress(context);
               } : null,
               child: ElevatedButton(
-                onPressed: ticket.availableSlots > 0 ? () {} : null,
+                onPressed: ticket.availableSlots > 0 ? () async {
+                  final repo = getIt.get<EventRepository>();
+                  final queue = getIt.get<BookingQueueService>();
+                  final connectivity = getIt.get<ConnectivityService>();
+                  final status = await connectivity.check();
+                  final payload = {
+                    'eventId': (context.findAncestorWidgetOfExactType<EventDetailContent>() as EventDetailContent).event.lobby.id,
+                    'ticketId': ticket.id,
+                    'quantity': 1,
+                    'token': null,
+                  };
+                  if (status == ConnectivityResult.none) {
+                    await queue.enqueue(payload);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('You\'re offline. Booking queued.'), duration: Duration(seconds: 2)),
+                      );
+                    }
+                  } else {
+                    try {
+                      await repo.bookTicket(
+                        eventId: payload['eventId'] as String,
+                        ticketId: payload['ticketId'] as String,
+                        quantity: payload['quantity'] as int,
+                        token: payload['token'] as String?,
+                      );
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Booking successful'), duration: Duration(seconds: 2)),
+                        );
+                      }
+                    } catch (_) {
+                      await queue.enqueue(payload);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Network error. Booking queued.')), 
+                        );
+                      }
+                    }
+                  }
+                } : null,
                 child: Text(ticket.availableSlots > 0 ? 'Book Ticket' : 'Sold Out'),
               ),
             ),
@@ -778,6 +913,79 @@ class _StatCard extends StatelessWidget {
               Text(value, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
               Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[600])),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CountdownTimer extends StatefulWidget {
+  final DateTime target;
+  const _CountdownTimer({required this.target});
+
+  @override
+  State<_CountdownTimer> createState() => _CountdownTimerState();
+}
+
+class _CountdownTimerState extends State<_CountdownTimer> {
+  late Duration _remaining;
+  late final Ticker _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _remaining = _calcRemaining();
+    _ticker = Ticker(_onTick)..start();
+  }
+
+  void _onTick(Duration _) {
+    final newRemaining = _calcRemaining();
+    if (mounted) {
+      setState(() {
+        _remaining = newRemaining;
+      });
+    }
+    if (newRemaining.inSeconds <= 0) {
+      _ticker.stop();
+    }
+  }
+
+  Duration _calcRemaining() {
+    final now = DateTime.now();
+    final diff = widget.target.difference(now);
+    return diff.isNegative ? Duration.zero : diff;
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final days = _remaining.inDays;
+    final hours = _remaining.inHours % 24;
+    final minutes = _remaining.inMinutes % 60;
+    final seconds = _remaining.inSeconds % 60;
+
+    final label = _remaining == Duration.zero
+        ? 'Event started'
+        : 'Starts in ${days > 0 ? '$days d ' : ''}${hours.toString().padLeft(2, '0')}h ${minutes.toString().padLeft(2, '0')}m ${seconds.toString().padLeft(2, '0')}s';
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      child: Row(
+        children: [
+          Icon(Icons.hourglass_bottom, size: 18, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
           ),
         ],
       ),

@@ -3,6 +3,9 @@ import 'package:get_it/get_it.dart';
 import '../../data/datasources/event_remote_datasource.dart';
 import '../../data/repository/event_repository.dart';
 import '../../services/connectivity_service.dart';
+import '../../services/local_event_cache_service.dart';
+import '../../services/booking_queue_service.dart';
+import '../../services/media_cache_service.dart';
 
 final GetIt getIt = GetIt.instance;
 
@@ -26,9 +29,15 @@ class Injector {
     getIt.registerLazySingleton<EventRemoteDataSource>(() =>
         EventRemoteDataSourceImpl(dio: getIt.get<Dio>()));
 
+    // Local persistence services
+    getIt.registerLazySingleton<LocalEventCacheService>(() => LocalEventCacheService());
+    getIt.registerLazySingleton<BookingQueueService>(() => BookingQueueService());
+    getIt.registerLazySingleton<MediaCacheService>(() => MediaCacheService());
+
     // Repository
     getIt.registerLazySingleton<EventRepository>(() => EventRepositoryImpl(
           remoteDataSource: getIt.get<EventRemoteDataSource>(),
+          localCache: getIt.get<LocalEventCacheService>(),
         ));
 
     // Services

@@ -12,6 +12,9 @@ import 'data/repository/event_repository.dart';
 import 'presentation/bloc/event_detail/event_detail_cubit.dart';
 import 'presentation/screens/event_detail_screen.dart';
 import 'presentation/widgets/connectivity_gate.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'services/local_event_cache_service.dart';
+import 'services/booking_queue_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,6 +36,10 @@ void main() async {
   
   // Initialize DI container
   Injector.init();
+  await Hive.initFlutter();
+  // Initialize local services boxes
+  await getIt.get<LocalEventCacheService>().init();
+  await getIt.get<BookingQueueService>().init();
   final repository = getIt.get<EventRepository>();
   
   PerformanceMonitor.endTimer('app_initialization');
@@ -56,9 +63,16 @@ class MyApp extends StatelessWidget {
       title: 'Event Lobby',
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.light,
+      themeMode: ThemeMode.system,
       debugShowCheckedModeBanner: false,
       home: ConnectivityGate(
+        hasLocalData: () async {
+          final cache = getIt.get<LocalEventCacheService>();
+          final eventId = Validators.isValidEventId(AppConstants.defaultEventId)
+              ? AppConstants.defaultEventId
+              : AppConstants.defaultEventId;
+          return cache.getEventJson(eventId) != null;
+        },
         child: BlocProvider(
           create: (context) => EventDetailCubit(repository: repository),
           child: EventDetailScreen(

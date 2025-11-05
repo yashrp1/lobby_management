@@ -9,6 +9,14 @@ import '../../core/constants/spacing.dart';
 import '../bloc/event_detail/event_detail_cubit.dart';
 import '../bloc/event_detail/event_detail_state.dart';
 import '../widgets/event_detail_content.dart';
+import '../../services/saved_events_service.dart';
+import '../../services/share_service.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import '../../core/di/injector.dart';
+import '../../services/connectivity_service.dart';
+import '../../services/media_cache_service.dart';
+import 'package:smooth_page_indicator/smooth_page_indicator.dart';
+import 'image_gallery_viewer.dart';
 
 class EventDetailScreen extends StatefulWidget {
   final String eventId;
@@ -25,16 +33,42 @@ class EventDetailScreen extends StatefulWidget {
 }
 
 class _EventDetailScreenState extends State<EventDetailScreen> {
+  bool _isSaved = false;
+  ConnectivityResult? _conn;
+  bool _mediaPrefetched = false;
+  int _currentImage = 0;
+
   @override
   void initState() {
     super.initState();
     context.read<EventDetailCubit>().loadEventDetail(widget.eventId, widget.token);
+    _loadSavedState();
+    _checkConnectivity();
+  }
+
+  Future<void> _loadSavedState() async {
+    final saved = await SavedEventsService.isSaved(widget.eventId);
+    if (mounted) {
+      setState(() {
+        _isSaved = saved;
+      });
+    }
+  }
+
+  Future<void> _checkConnectivity() async {
+    final service = getIt.get<ConnectivityService>();
+    final result = await service.check();
+    if (mounted) setState(() => _conn = result);
+    service.onConnectivityChanged.listen((event) {
+      if (!mounted) return;
+      setState(() => _conn = event);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       body: BlocConsumer<EventDetailCubit, EventDetailState>(
         listener: (context, state) {
           if (state is EventDetailError) {
@@ -72,7 +106,43 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           }
 
           if (state is EventDetailLoaded) {
-            return _buildContent(state.event, state.viewingCount);
+            // Prefetch media for offline viewing when online (run once)
+            if (!_mediaPrefetched && _conn != ConnectivityResult.none) {
+              _mediaPrefetched = true;
+              final media = state.event.lobby.mediaUrls;
+              if (media.isNotEmpty) {
+                getIt.get<MediaCacheService>().prefetchAll(media);
+              }
+            }
+
+            final content = _buildContent(state.event, state.viewingCount);
+            return Stack(
+              children: [
+                content,
+                if (_conn == ConnectivityResult.none)
+                  SafeArea(
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: Container(
+                        margin: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.cloud_off, color: Colors.white, size: 18),
+                            SizedBox(width: 8),
+                            Text('Offline mode', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
           }
 
           return const SizedBox.shrink();
@@ -127,19 +197,26 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                   shape: BoxShape.circle,
                 ),
                 child: IconButton(
-                  icon: const Icon(Icons.bookmark_border, color: Colors.white),
-                  onPressed: () {
+                  icon: Icon(_isSaved ? Icons.bookmark : Icons.bookmark_border, color: Colors.white),
+                  onPressed: () async {
                     MicroInteractions.selection(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('Bookmark button pressed'),
-                        duration: const Duration(seconds: 2),
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(Spacing.sm),
+                    await SavedEventsService.toggleSaved(widget.eventId);
+                    final nowSaved = await SavedEventsService.isSaved(widget.eventId);
+                    if (mounted) {
+                      setState(() {
+                        _isSaved = nowSaved;
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(nowSaved ? 'Saved to favorites' : 'Removed from favorites'),
+                          duration: const Duration(seconds: 2),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(Spacing.sm),
+                          ),
                         ),
-                      ),
-                    );
+                      );
+                    }
                   },
                 ),
               ),
@@ -151,17 +228,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                 ),
                 child: IconButton(
                   icon: const Icon(Icons.share, color: Colors.white),
-                  onPressed: () {
+                  onPressed: () async {
                     MicroInteractions.buttonPress(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('Share button pressed'),
-                        duration: const Duration(seconds: 2),
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(Spacing.sm),
-                        ),
-                      ),
+                    final shareText = _buildShareText(event);
+                    await ShareServiceImpl().shareText(
+                      shareText,
+                      subject: 'Check out this event: ${event.lobby.title}',
                     );
                   },
                 ),
@@ -170,24 +242,73 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             flexibleSpace: FlexibleSpaceBar(
               background: lobby.mediaUrls.isNotEmpty
                   ? RepaintBoundary(
-                      child: CarouselSlider.builder(
+                      child: Stack(
+                        children: [
+                          CarouselSlider.builder(
                         itemCount: lobby.mediaUrls.length,
                         itemBuilder: (context, index, realIndex) {
-                          return RepaintBoundary(
-                            child: ImageCacheConfig.getOptimizedImage(
-                              imageUrl: lobby.mediaUrls[index],
-                              fit: BoxFit.cover,
-                              width: double.infinity,
+                          final url = lobby.mediaUrls[index];
+                              final imageWidget = _conn == ConnectivityResult.none
+                                  ? FutureBuilder(
+                                      future: getIt.get<MediaCacheService>().getCachedFile(url),
+                                      builder: (context, snapshot) {
+                                        if (snapshot.connectionState == ConnectionState.done && snapshot.data != null) {
+                                          return Image.file(snapshot.data!, fit: BoxFit.cover, width: double.infinity);
+                                        }
+                                        return ImageCacheConfig.getOptimizedImage(
+                                          imageUrl: url,
+                                          fit: BoxFit.cover,
+                                          width: double.infinity,
+                                        );
+                                      },
+                                    )
+                                  : ImageCacheConfig.getOptimizedImage(
+                                      imageUrl: url,
+                                      fit: BoxFit.cover,
+                                      width: double.infinity,
+                                    );
+                              return GestureDetector(
+                                onTap: () {
+                                  Navigator.of(context).push(MaterialPageRoute(
+                                    builder: (_) => ImageGalleryViewer(
+                                      imageUrls: lobby.mediaUrls,
+                                      initialIndex: index,
+                                    ),
+                                  ));
+                                },
+                                child: imageWidget,
+                              );
+                            },
+                            options: CarouselOptions(
+                              height: double.infinity,
+                              viewportFraction: 1.0,
+                              autoPlay: false,
+                              autoPlayInterval: const Duration(seconds: 5),
+                              enableInfiniteScroll: false,
+                              onPageChanged: (idx, reason) {
+                                setState(() => _currentImage = idx);
+                              },
                             ),
-                          );
-                        },
-                        options: CarouselOptions(
-                          height: double.infinity,
-                          viewportFraction: 1.0,
-                          autoPlay: lobby.mediaUrls.length > 1,
-                          autoPlayInterval: const Duration(seconds: 4),
-                          enableInfiniteScroll: false,
-                        ),
+                          ),
+                          if (lobby.mediaUrls.length > 1)
+                            Positioned(
+                              bottom: 12,
+                              left: 0,
+                              right: 0,
+                              child: Center(
+                                child: AnimatedSmoothIndicator(
+                                  activeIndex: _currentImage,
+                                  count: lobby.mediaUrls.length,
+                                  effect: const WormEffect(
+                                    dotWidth: 8,
+                                    dotHeight: 8,
+                                    activeDotColor: Colors.white,
+                                    dotColor: Colors.white54,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     )
                   : Container(
@@ -219,6 +340,22 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       ),
     );
   }
+
+  String _buildShareText(dynamic event) {
+    final lobby = event.lobby;
+    final dateStr = lobby.dateRange != null
+        ? lobby.dateRange!.formattedDate ?? lobby.dateRange!.startDateTime.toString()
+        : '';
+    final location = lobby.filter?.otherFilterInfo?.locationInfo?.firstLocation?.displayAddress ?? '';
+    final link = 'https://event.app/e/${lobby.id}?utm_source=share&utm_medium=app';
+    final lines = <String>[
+      lobby.title,
+      if (dateStr.isNotEmpty) 'When: $dateStr',
+      if (location.isNotEmpty) 'Where: $location',
+      'Join here: $link',
+    ];
+    return lines.join('\n');
+  }
 }
 
 class _LoadingView extends StatelessWidget {
@@ -229,11 +366,11 @@ class _LoadingView extends StatelessWidget {
       body: ListView(
         children: [
           Shimmer.fromColors(
-            baseColor: Colors.grey[300]!,
-            highlightColor: Colors.grey[100]!,
+            baseColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+            highlightColor: Theme.of(context).colorScheme.surface,
             child: Container(
               height: MediaQuery.of(context).size.height * 0.45,
-              color: Colors.white,
+              color: Theme.of(context).colorScheme.surface,
             ),
           ),
           const SizedBox(height: 16),
@@ -245,12 +382,12 @@ class _LoadingView extends StatelessWidget {
                 (index) => Padding(
                   padding: const EdgeInsets.only(bottom: 16),
                   child: Shimmer.fromColors(
-                    baseColor: Colors.grey[300]!,
-                    highlightColor: Colors.grey[100]!,
+                    baseColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    highlightColor: Theme.of(context).colorScheme.surface,
                     child: Container(
                       height: 100,
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: Theme.of(context).colorScheme.surface,
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),

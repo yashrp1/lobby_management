@@ -22,6 +22,18 @@ class EventDetailModel extends Equatable {
 
   @override
   List<Object?> get props => [lobby, category, subCategory];
+
+  EventDetailModel copyWith({
+    Lobby? lobby,
+    Category? category,
+    SubCategory? subCategory,
+  }) {
+    return EventDetailModel(
+      lobby: lobby ?? this.lobby,
+      category: category ?? this.category,
+      subCategory: subCategory ?? this.subCategory,
+    );
+  }
 }
 
 class Lobby extends Equatable {
@@ -161,6 +173,41 @@ class Lobby extends Equatable {
         lobbyInsight,
         userSummaries,
       ];
+
+  Lobby copyWith({
+    int? currentMembers,
+    int? totalMembers,
+    int? views,
+    String? statusFlag,
+  }) {
+    return Lobby(
+      id: id,
+      title: title,
+      description: description,
+      mediaUrls: mediaUrls,
+      lobbyStatus: lobbyStatus,
+      filter: filter,
+      totalMembers: totalMembers ?? this.totalMembers,
+      currentMembers: currentMembers ?? this.currentMembers,
+      membersRequired: membersRequired,
+      isPaid: isPaid,
+      locations: locations,
+      adminSummary: adminSummary,
+      dateRange: dateRange,
+      activity: activity,
+      statusFlag: statusFlag ?? this.statusFlag,
+      houseId: houseId,
+      houseDetail: houseDetail,
+      form: form,
+      hasForm: hasForm,
+      priceDetails: priceDetails,
+      admins: admins,
+      ticketOptions: ticketOptions,
+      views: views ?? this.views,
+      lobbyInsight: lobbyInsight,
+      userSummaries: userSummaries,
+    );
+  }
 }
 
 class Filter extends Equatable {

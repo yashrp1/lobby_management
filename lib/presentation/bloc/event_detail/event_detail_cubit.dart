@@ -9,6 +9,7 @@ import 'dart:async';
 class EventDetailCubit extends Cubit<EventDetailState> {
   final EventRepository repository;
   Timer? _viewingTimer;
+  Timer? _participantTimer;
   int _viewingCount = 0;
 
   EventDetailCubit({required this.repository}) : super(EventDetailInitial());
@@ -32,6 +33,7 @@ class EventDetailCubit extends Cubit<EventDetailState> {
 
       // Start timer for viewing count updates
       _startViewingTimer();
+      _startParticipantTimer();
     } catch (e, stackTrace) {
       PerformanceMonitor.endTimer('loadEventDetail');
       final errorMessage = e is ApiException ? e.message : 'An error occurred';
@@ -54,6 +56,25 @@ class EventDetailCubit extends Cubit<EventDetailState> {
     });
   }
 
+  void _startParticipantTimer() {
+    _participantTimer?.cancel();
+    _participantTimer = Timer.periodic(const Duration(seconds: 7), (_) {
+      if (state is EventDetailLoaded) {
+        final currentState = state as EventDetailLoaded;
+        final lobby = currentState.event.lobby;
+        final delta = (DateTime.now().millisecondsSinceEpoch % 3) - 1; // -1, 0, or +1
+        int next = lobby.currentMembers + delta;
+        if (next < 0) next = 0;
+        if (next > lobby.totalMembers) next = lobby.totalMembers;
+        if (next != lobby.currentMembers) {
+          final updatedLobby = lobby.copyWith(currentMembers: next);
+          final updatedEvent = currentState.event.copyWith(lobby: updatedLobby);
+          emit(currentState.copyWith(event: updatedEvent));
+        }
+      }
+    });
+  }
+
   int _generateRandomViewingCount() {
     return DateTime.now().millisecondsSinceEpoch % 50 + 1;
   }
@@ -61,6 +82,7 @@ class EventDetailCubit extends Cubit<EventDetailState> {
   @override
   Future<void> close() {
     _viewingTimer?.cancel();
+    _participantTimer?.cancel();
     return super.close();
   }
 }

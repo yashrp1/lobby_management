@@ -8,6 +8,12 @@ import '../models/event_detail_model.dart';
 
 abstract class EventRemoteDataSource {
   Future<EventDetailModel> getEventDetail(String eventId, String? token);
+  Future<void> bookTicket({
+    required String eventId,
+    required String ticketId,
+    required int quantity,
+    String? token,
+  });
 }
 
 class EventRemoteDataSourceImpl implements EventRemoteDataSource {
@@ -103,5 +109,17 @@ class EventRemoteDataSourceImpl implements EventRemoteDataSource {
         throw ApiException(message: e.toString());
       }
     });
+  }
+
+  @override
+  Future<void> bookTicket({
+    required String eventId,
+    required String ticketId,
+    required int quantity,
+    String? token,
+  }) async {
+    // Placeholder implementation (simulate booking success)
+    // Replace with real API when available.
+    await Future.delayed(const Duration(milliseconds: 400));
   }
 }
